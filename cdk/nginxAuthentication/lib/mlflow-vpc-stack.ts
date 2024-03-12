@@ -1,5 +1,5 @@
-import * as cdk from 'aws-cdk-lib';
-import { Construct } from 'constructs';
+import * as cdk from "aws-cdk-lib";
+import { Construct } from "constructs";
 
 import * as elbv2 from "aws-cdk-lib/aws-elasticloadbalancingv2";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
@@ -7,32 +7,31 @@ import * as ecs from "aws-cdk-lib/aws-ecs";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as servicediscovery from "aws-cdk-lib/aws-servicediscovery";
-import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
-import * as s3 from 'aws-cdk-lib/aws-s3';
-import { CfnDBCluster, CfnDBSubnetGroup } from 'aws-cdk-lib/aws-rds';
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
+import * as s3 from "aws-cdk-lib/aws-s3";
+import { CfnDBCluster, CfnDBSubnetGroup } from "aws-cdk-lib/aws-rds";
 
 const { ApplicationProtocol } = elbv2;
-const dbName = "mlflowdb"
-const dbPort = 3306
-const dbUsername = "master"
-const clusterName = "mlflowCluster"
-const serviceName = "mlflowService"
-const cidr = "10.0.0.0/16"
-const containerPort = 5000
+const dbName = "mlflowdb";
+const dbPort = 3306;
+const dbUsername = "master";
+const clusterName = "mlflowCluster";
+const serviceName = "mlflowService";
+const cidr = "10.0.0.0/16";
+const containerPort = 5000;
 
-const mlflowUsername = "admin"
+const mlflowUsername = "admin";
 
 export class MLflowVpcStack extends cdk.Stack {
-
   // Export Vpc, ALB Listener, and Mlflow secret ARN
   public readonly httpApiListener: elbv2.ApplicationListener;
   public readonly mlflowSecretArn: string;
   public readonly vpc: ec2.Vpc;
 
-  readonly bucketName = `mlflow-${this.account}-${this.region}`
+  readonly bucketName = `mlflow-${this.account}-${this.region}`;
 
   constructor(
-    scope: Construct, 
+    scope: Construct,
     id: string,
     mlflowSecretName: string,
     props?: cdk.StackProps
@@ -40,23 +39,23 @@ export class MLflowVpcStack extends cdk.Stack {
     super(scope, id, props);
 
     // VPC
-    this.vpc = new ec2.Vpc(this, 'MLFlowVPC', {
-      cidr: cidr,
+    this.vpc = new ec2.Vpc(this, "MLFlowVPC", {
+      ipAddresses: ec2.IpAddresses.cidr(cidr),
       natGateways: 1,
       maxAzs: 2,
       subnetConfiguration: [
         {
-          name: 'public',
+          name: "public",
           subnetType: ec2.SubnetType.PUBLIC,
           cidrMask: 24,
         },
         {
-          name: 'private',
-          subnetType: ec2.SubnetType.PRIVATE_WITH_NAT,
+          name: "private",
+          subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
           cidrMask: 26,
         },
         {
-          name: 'isolated',
+          name: "isolated",
           subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
           cidrMask: 28,
         },
@@ -71,8 +70,8 @@ export class MLflowVpcStack extends cdk.Stack {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
-      encryption: s3.BucketEncryption.KMS_MANAGED
-    })
+      encryption: s3.BucketEncryption.KMS_MANAGED,
+    });
 
     // DB SubnetGroup
     const subnetIds: string[] = [];
@@ -80,50 +79,73 @@ export class MLflowVpcStack extends cdk.Stack {
       subnetIds.push(subnet.subnetId);
     });
 
-    const dbSubnetGroup: CfnDBSubnetGroup = new CfnDBSubnetGroup(this, 'AuroraSubnetGroup', {
-      dbSubnetGroupDescription: 'Subnet group to access aurora',
-      dbSubnetGroupName: 'aurora-serverless-subnet-group',
-      subnetIds
-    });
+    const dbSubnetGroup: CfnDBSubnetGroup = new CfnDBSubnetGroup(
+      this,
+      "AuroraSubnetGroup",
+      {
+        dbSubnetGroupDescription: "Subnet group to access aurora",
+        dbSubnetGroupName: "aurora-serverless-subnet-group",
+        subnetIds,
+      }
+    );
 
     // DB Credentials
-    const databaseCredentialsSecret = new secretsmanager.Secret(this, 'DBCredentialsSecret', {
-      secretName: `mlflow-database-credentials`,
-      generateSecretString: {
-        secretStringTemplate: JSON.stringify({
-          username: dbUsername,
-        }),
-        excludePunctuation: true,
-        includeSpace: false,
-        generateStringKey: 'password'
+    const databaseCredentialsSecret = new secretsmanager.Secret(
+      this,
+      "DBCredentialsSecret",
+      {
+        secretName: `mlflow-database-credentials`,
+        generateSecretString: {
+          secretStringTemplate: JSON.stringify({
+            username: dbUsername,
+          }),
+          excludePunctuation: true,
+          includeSpace: false,
+          generateStringKey: "password",
+        },
       }
-    });
-    
+    );
+
     // Mflow credentials
-    const mlflowCredentialsSecret = new secretsmanager.Secret(this, 'MlflowCredentialsSecret', {
-      secretName: mlflowSecretName,
-      generateSecretString: {
-        secretStringTemplate: JSON.stringify({
-          username: mlflowUsername,
-        }),
-        excludePunctuation: true,
-        includeSpace: false,
-        generateStringKey: 'password'
+    const mlflowCredentialsSecret = new secretsmanager.Secret(
+      this,
+      "MlflowCredentialsSecret",
+      {
+        secretName: mlflowSecretName,
+        generateSecretString: {
+          secretStringTemplate: JSON.stringify({
+            username: mlflowUsername,
+          }),
+          excludePunctuation: true,
+          includeSpace: false,
+          generateStringKey: "password",
+        },
       }
-    });
+    );
 
     // 👇 DB SecurityGroup
-    const dbClusterSecurityGroup = new ec2.SecurityGroup(this, 'DBClusterSecurityGroup', { vpc: this.vpc });
-    dbClusterSecurityGroup.addIngressRule(ec2.Peer.ipv4(cidr), ec2.Port.tcp(dbPort));
+    const dbClusterSecurityGroup = new ec2.SecurityGroup(
+      this,
+      "DBClusterSecurityGroup",
+      { vpc: this.vpc }
+    );
+    dbClusterSecurityGroup.addIngressRule(
+      ec2.Peer.ipv4(cidr),
+      ec2.Port.tcp(dbPort)
+    );
 
     const dbConfig = {
       dbClusterIdentifier: `${serviceName}-cluster`,
-      engineMode: 'serverless',
-      engine: 'aurora-mysql',
-      engineVersion: '5.7.12',
+      engineMode: "serverless",
+      engine: "aurora-mysql",
+      engineVersion: "5.7.12",
       databaseName: dbName,
-      masterUsername: databaseCredentialsSecret.secretValueFromJson('username').toString(),
-      masterUserPassword: databaseCredentialsSecret.secretValueFromJson('password').toString(),
+      masterUsername: databaseCredentialsSecret
+        .secretValueFromJson("username")
+        .toString(),
+      masterUserPassword: databaseCredentialsSecret
+        .secretValueFromJson("password")
+        .toString(),
       // Note: aurora serverless cluster can be accessed within its VPC only
       // https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/aurora-serverless.html
       dbSubnetGroupName: dbSubnetGroup.dbSubnetGroupName,
@@ -133,14 +155,12 @@ export class MLflowVpcStack extends cdk.Stack {
         minCapacity: 2,
         secondsUntilAutoPause: 3600,
       },
-      vpcSecurityGroupIds: [
-        dbClusterSecurityGroup.securityGroupId
-      ]
+      vpcSecurityGroupIds: [dbClusterSecurityGroup.securityGroupId],
     };
 
-    // 👇 RDS Cluster 
-    const rdsCluster = new CfnDBCluster(this, 'DBCluster', dbConfig);
-    rdsCluster.addDependsOn(dbSubnetGroup)
+    // 👇 RDS Cluster
+    const rdsCluster = new CfnDBCluster(this, "DBCluster", dbConfig);
+    rdsCluster.addDependency(dbSubnetGroup);
 
     // 👇 ECS Cluster
     const cluster = new ecs.Cluster(this, "Fargate Cluster", {
@@ -163,17 +183,22 @@ export class MLflowVpcStack extends cdk.Stack {
     const taskrole = new iam.Role(this, "ecsTaskExecutionRole", {
       assumedBy: new iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
       managedPolicies: [
-        iam.ManagedPolicy.fromAwsManagedPolicyName("service-role/AmazonECSTaskExecutionRolePolicy")
+        iam.ManagedPolicy.fromAwsManagedPolicyName(
+          "service-role/AmazonECSTaskExecutionRolePolicy"
+        ),
       ],
       inlinePolicies: {
         s3Bucket: new iam.PolicyDocument({
-          statements:[
+          statements: [
             new iam.PolicyStatement({
               effect: iam.Effect.ALLOW,
-              resources: [`arn:aws:s3:::${this.bucketName}`,`arn:aws:s3:::${this.bucketName}/*`],
-              actions: ["s3:*"]
-            })
-          ]
+              resources: [
+                `arn:aws:s3:::${this.bucketName}`,
+                `arn:aws:s3:::${this.bucketName}/*`,
+              ],
+              actions: ["s3:*"],
+            }),
+          ],
         }),
         secretsManagerRestricted: new iam.PolicyDocument({
           statements: [
@@ -181,23 +206,23 @@ export class MLflowVpcStack extends cdk.Stack {
               effect: iam.Effect.ALLOW,
               resources: [
                 mlflowCredentialsSecret.secretArn,
-                databaseCredentialsSecret.secretArn
+                databaseCredentialsSecret.secretArn,
               ],
               actions: [
                 "secretsmanager:GetResourcePolicy",
                 "secretsmanager:GetSecretValue",
                 "secretsmanager:DescribeSecret",
-                "secretsmanager:ListSecretVersionIds"
-              ]
+                "secretsmanager:ListSecretVersionIds",
+              ],
             }),
             new iam.PolicyStatement({
               effect: iam.Effect.ALLOW,
               resources: ["*"],
-              actions: ["secretsmanager:ListSecrets"]
-            })
-          ]
-        })
-      }
+              actions: ["secretsmanager:ListSecrets"],
+            }),
+          ],
+        }),
+      },
     });
 
     // 👇 Task Definitions
@@ -208,42 +233,51 @@ export class MLflowVpcStack extends cdk.Stack {
         taskRole: taskrole,
         family: "mlFlowStack",
         cpu: 1024,
-        memoryLimitMiB: 2048
-      },
+        memoryLimitMiB: 2048,
+      }
     );
 
     // 👇 Log Groups
-    const mlflowServiceLogGroup = new logs.LogGroup(this, "mlflowServiceLogGroup", {
-      logGroupName: "/ecs/mlflowService",
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-    });
+    const mlflowServiceLogGroup = new logs.LogGroup(
+      this,
+      "mlflowServiceLogGroup",
+      {
+        logGroupName: "/ecs/mlflowService",
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
+      }
+    );
 
     const mlflowServiceLogDriver = new ecs.AwsLogDriver({
       logGroup: mlflowServiceLogGroup,
       streamPrefix: "mlflowService",
     });
-    
+
     // 👇 nginx Task Container
-    const nginxContainer = mlflowTaskDefinition.addContainer(
-      "nginxContainer",
-      {
-        containerName: "nginxContainer",
-        essential: true,
-        // memoryReservationMiB: 512,
-        // cpu: 512,
-        portMappings: [{
+    const nginxContainer = mlflowTaskDefinition.addContainer("nginxContainer", {
+      containerName: "nginxContainer",
+      essential: true,
+      // memoryReservationMiB: 512,
+      // cpu: 512,
+      portMappings: [
+        {
           containerPort: 80,
-          protocol: ecs.Protocol.TCP
-        }],
-        image: ecs.ContainerImage.fromAsset('../../src/nginx/basic_auth', {}),
-        secrets: {
-          MLFLOW_USERNAME: ecs.Secret.fromSecretsManager(mlflowCredentialsSecret, 'username'),
-          MLFLOW_PASSWORD: ecs.Secret.fromSecretsManager(mlflowCredentialsSecret, 'password')
+          protocol: ecs.Protocol.TCP,
         },
-        logging: mlflowServiceLogDriver,
-      }
-    );
-    
+      ],
+      image: ecs.ContainerImage.fromAsset("../../src/nginx/basic_auth", {}),
+      secrets: {
+        MLFLOW_USERNAME: ecs.Secret.fromSecretsManager(
+          mlflowCredentialsSecret,
+          "username"
+        ),
+        MLFLOW_PASSWORD: ecs.Secret.fromSecretsManager(
+          mlflowCredentialsSecret,
+          "password"
+        ),
+      },
+      logging: mlflowServiceLogDriver,
+    });
+
     // 👇 MlFlow Task Container
     const mlflowServiceContainer = mlflowTaskDefinition.addContainer(
       "mlflowContainer",
@@ -252,23 +286,32 @@ export class MLflowVpcStack extends cdk.Stack {
         essential: true,
         memoryReservationMiB: 1024,
         cpu: 512,
-        portMappings: [{
-          containerPort: containerPort,
-          protocol: ecs.Protocol.TCP,
-        }],
-        image: ecs.ContainerImage.fromAsset('../../src/mlflow', {}),
+        portMappings: [
+          {
+            containerPort: containerPort,
+            protocol: ecs.Protocol.TCP,
+          },
+        ],
+        image: ecs.ContainerImage.fromAsset("../../src/mlflow", {}),
         environment: {
-          'BUCKET': `s3://${mlFlowBucket.bucketName}`,
-          'HOST': rdsCluster.attrEndpointAddress,
-          'PORT': `${dbPort}`,
-          'DATABASE': dbName
+          BUCKET: `s3://${mlFlowBucket.bucketName}`,
+          HOST: rdsCluster.attrEndpointAddress,
+          PORT: `${dbPort}`,
+          DATABASE: dbName,
         },
         secrets: {
-          USERNAME: ecs.Secret.fromSecretsManager(databaseCredentialsSecret, 'username'),
-          PASSWORD: ecs.Secret.fromSecretsManager(databaseCredentialsSecret, 'password')
+          USERNAME: ecs.Secret.fromSecretsManager(
+            databaseCredentialsSecret,
+            "username"
+          ),
+          PASSWORD: ecs.Secret.fromSecretsManager(
+            databaseCredentialsSecret,
+            "password"
+          ),
         },
         logging: mlflowServiceLogDriver,
-      });
+      }
+    );
 
     // 👇 Security Group
     const mlflowServiceSecGrp = new ec2.SecurityGroup(
@@ -280,7 +323,9 @@ export class MLflowVpcStack extends cdk.Stack {
         vpc: this.vpc,
       }
     );
-    mlflowServiceSecGrp.connections.allowFromAnyIpv4(ec2.Port.tcp(containerPort));
+    mlflowServiceSecGrp.connections.allowFromAnyIpv4(
+      ec2.Port.tcp(containerPort)
+    );
     mlflowServiceSecGrp.connections.allowFromAnyIpv4(ec2.Port.tcp(80));
 
     // 👇 Fargate Services
@@ -311,23 +356,20 @@ export class MLflowVpcStack extends cdk.Stack {
     this.httpApiListener = httpApiInternalALB.addListener("httpapiListener", {
       port: 80,
       protocol: ApplicationProtocol.HTTP,
-
     });
-    
+
     // 👇 Target Groups
     const mlflowServiceTargetGroup = this.httpApiListener.addTargets(
       "mlflowServiceTargetGroup",
       {
         healthCheck: {
-          path: "/elb-status"
+          path: "/elb-status",
         },
         targets: [
-          mlflowService.loadBalancerTarget(
-            {
-              containerName: 'nginxContainer',
-              containerPort: 80
-            }
-          )
+          mlflowService.loadBalancerTarget({
+            containerName: "nginxContainer",
+            containerPort: 80,
+          }),
         ],
         port: 80,
         protocol: ApplicationProtocol.HTTP,
@@ -336,17 +378,16 @@ export class MLflowVpcStack extends cdk.Stack {
 
     // 👇 Task Auto Scaling
     const autoScaling = mlflowService.autoScaleTaskCount({ maxCapacity: 6 });
-    autoScaling.scaleOnCpuUtilization('CpuScaling', {
+    autoScaling.scaleOnCpuUtilization("CpuScaling", {
       targetUtilizationPercent: 70,
       scaleInCooldown: cdk.Duration.seconds(60),
       scaleOutCooldown: cdk.Duration.seconds(60),
     });
-   
-    this.mlflowSecretArn = mlflowCredentialsSecret.secretArn
+
+    this.mlflowSecretArn = mlflowCredentialsSecret.secretArn;
 
     new cdk.CfnOutput(this, "ALB Dns Name : ", {
       value: httpApiInternalALB.loadBalancerDnsName,
     });
-
   }
 }
