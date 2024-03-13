@@ -10,6 +10,7 @@ import * as servicediscovery from "aws-cdk-lib/aws-servicediscovery";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { CfnDBCluster, CfnDBSubnetGroup } from "aws-cdk-lib/aws-rds";
+import { Duration } from "aws-cdk-lib";
 
 const { ApplicationProtocol } = elbv2;
 const dbName = "mlflowdb";
@@ -284,7 +285,7 @@ export class MLflowVpcStack extends cdk.Stack {
       {
         containerName: "mlflowContainer",
         essential: true,
-        memoryReservationMiB: 1024,
+        memoryReservationMiB: 2024,
         cpu: 512,
         portMappings: [
           {
@@ -334,7 +335,8 @@ export class MLflowVpcStack extends cdk.Stack {
       serviceName: serviceName,
       taskDefinition: mlflowTaskDefinition,
       assignPublicIp: false,
-      desiredCount: 2,
+      desiredCount: 1,
+      healthCheckGracePeriod: Duration.minutes(5),
       securityGroups: [mlflowServiceSecGrp],
       cloudMapOptions: {
         name: "mlflowService",
